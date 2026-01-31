@@ -1,8 +1,8 @@
-# EHR Action-as-Language (Wrong-Patient Error Workflow Modeling)
+# EHR Action-as-Language Audit Log Foundation Model Workflow
 
-This repository contains a research pipeline for modeling **EHR audit log action sequences** as a **language-like sequence** (“actions as tokens”), with a focus on *wrong-patient error (WPE)* case–control data. The code supports:
+This repository contains a research pipeline for modeling **EHR audit log action sequences** as a **language-like sequence** (“actions as tokens”), with a focus on audit log sequences corresponding to ordering events. The code supports:
 
-- preprocessing and caching time-windowed audit log sequences for WPE cases and matched controls,
+- preprocessing and caching time-windowed audit log sequences for ordering events (in this case, WPE cases and matched controls),
 - representing audit logs in **word-based** or **field-based / structured** forms,
 - optional **custom action-token vocabularies** (e.g., `[ACT_123]`) and structured special tokens,
 - fine-tuning autoregressive LLMs (e.g., Llama 3) with **(Q)LoRA** using an SFT-style trainer,
@@ -33,14 +33,14 @@ This repository contains a research pipeline for modeling **EHR audit log action
 
 ## Conceptual overview
 
-EHR audit logs record clinician interactions as granular events (e.g., “Chart Review”, “Order Entry”, “Result Viewed”). Traditional analyses often treat events independently, which can miss workflow context. This project treats an interaction stream as a **sequence** analogous to text:
+EHR audit logs record clinician interactions as granular events (e.g., “Chart Review”, “Order Entry”, “Result Viewed”). Traditional analyses often treat events independently, which can miss workflow context. This project treats an EHR interaction stream as a **sequence** analogous to text:
 
 - Each action becomes a token (either a natural-language action name → subword tokens, or a mapped symbolic token like `[ACT_42]`).
 - Optional structured fields (e.g., time-delta buckets) can be encoded as special tokens.
 - Autoregressive LLMs are fine-tuned to learn workflow regularities and produce predictive distributions over next actions.
 - Evaluation focuses on generalization and uncertainty-related metrics (entropy, calibration-related summaries where applicable).
 
-This codebase is currently oriented around **WPE case–control windows** (e.g., 30 minutes prior to the index event), but the preprocessing/tokenization abstractions are reusable for other audit-log sequence tasks.
+This codebase is currently oriented around **ordering events** (e.g., 30 minutes prior to the index order), but the preprocessing/tokenization abstractions are reusable for other audit-log sequence tasks.
 
 ---
 
@@ -49,7 +49,7 @@ This codebase is currently oriented around **WPE case–control windows** (e.g.,
 Top-level scripts/modules included in this repo:
 
 - `main_WPE.py`  
-  Primary entry point to run the WPE pipeline (data module setup, training, evaluation, extraction).
+  Primary entry point to run the order pipeline (data module setup, training, evaluation, extraction).
 
 - `modules_WPE.py`  
   Core data and tokenization utilities:
