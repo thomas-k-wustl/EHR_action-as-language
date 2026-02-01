@@ -515,15 +515,6 @@ class EHRAuditLogDataModule():
 
                 logging.info("Tokenized datasets loaded from cache. Skipping full setup.")
 
-                if os.path.exists(os.path.join(self.path_prefix, token_cache_path, "test_set_static_features.parquet")):
-                    static_features = pd.read_parquet(
-                        os.path.join(self.path_prefix, token_cache_path, "test_set_static_features.parquet"))
-                    print(f"[INFO] Confirmed pre-computed static feature matrix exists in cache."
-                          f"\n\tshape: {static_features.shape}"
-                          f"\n\tcolumns: {static_features.columns}")
-                    del static_features
-                else:
-                    print(f"[INFO] Static feature matrix does not exist in cache.")
             else:
                 print(f"[INFO] reset_cache={reset_cache} | Cached files present? {all(os.path.exists(p) for p in [train_cache, val_cache, test_cache])}")
                 ## IF reset_cache=True, run to the full preparation cycle.
@@ -573,10 +564,6 @@ class EHRAuditLogDataModule():
                 train_input_strings = []
                 val_input_strings = []
                 test_input_strings = []
-                # train_wpe_ids = []
-                # val_wpe_ids = []
-                test_wpe_ids = []
-                test_timedelta_seqs = []
 
                 ## Process case datasets
                 # Since each WPE case has only a single corresponding error sequence,
@@ -598,10 +585,6 @@ class EHRAuditLogDataModule():
                     train_wpe = [dset for dset in wpe_datasets if dset.wpe_id in split_dict["train"]]
                     val_wpe = [dset for dset in wpe_datasets if dset.wpe_id in split_dict["val"]]
                     test_wpe = [dset for dset in wpe_datasets if dset.wpe_id in split_dict["test"]]
-                    # train_case_wpe_ids = [case_dataset.wpe_id for case_dataset in train_wpe]
-                    # val_case_wpe_ids = [case_dataset.wpe_id for case_dataset in val_wpe]
-                    test_case_wpe_ids = [case_dataset.wpe_id for case_dataset in test_wpe]
-                    test_case_timedelta_sequences = [case_dataset.timedelta_sequences[0] for case_dataset in test_wpe]
 
                     # Extract the action sequence preceding error from each WPE case.
                     train_case_input_strings = [case_dataset.sessionStrings[0] for case_dataset in train_wpe]
@@ -615,24 +598,14 @@ class EHRAuditLogDataModule():
                     train_input_strings.extend(train_case_input_strings)
                     val_input_strings.extend(val_case_input_strings)
                     test_input_strings.extend(test_case_input_strings)
-                    # train_wpe_ids.extend(train_case_wpe_ids)
-                    # val_wpe_ids.extend(val_case_wpe_ids)
-                    test_wpe_ids.extend(test_case_wpe_ids)
-                    test_timedelta_seqs.extend(test_case_timedelta_sequences)
+
 
                     ### CONTROL Dataset
                     control_datasets = list(self.control_datasets)
                     train_control = [dset for dset in control_datasets if dset.wpe_id in split_dict["train"]]
                     val_control = [dset for dset in control_datasets if dset.wpe_id in split_dict["val"]]
                     test_control = [dset for dset in control_datasets if dset.wpe_id in split_dict["test"]]
-                    # train_control_wpe_ids = [dataset.wpe_id for dataset in train_control if
-                    #                          len(dataset.sessionStrings) > 0]
-                    # val_control_wpe_ids = [dataset.wpe_id for dataset in val_control if
-                    #                          len(dataset.sessionStrings) > 0]
-                    test_control_wpe_ids = [dataset.wpe_id for dataset in test_control if
-                                             len(dataset.sessionStrings) > 0]
-                    test_control_timedelta_sequences = [TD_seq for control_dataset in test_control for TD_seq in
-                                                  control_dataset.timedelta_sequences]
+
                     # Extract the action sequence preceding error from each WPE case.
                     ## Option 1: randomly sample 1 control
                     # train_input_strings = [random.choice(dataset.sessionStrings) for control_datasets in train_control]
@@ -689,12 +662,8 @@ class EHRAuditLogDataModule():
                     train_input_strings.extend(train_control_input_strings)
                     val_input_strings.extend(val_control_input_strings)
                     test_input_strings.extend(test_control_input_strings)
-                    # train_wpe_ids.extend(train_control_wpe_ids)
-                    # val_wpe_ids.extend(val_control_wpe_ids)
-                    test_wpe_ids.extend(test_control_wpe_ids)
-                    test_timedelta_seqs.extend(test_control_timedelta_sequences)
+
                 else:
-                    self.test_wpe_ids = []
                     raise FileNotFoundError("[ERROR] fixed_wpe_splits.pt not found. Please run generate_fixed_split.py first.")
 
                 # Step 3: Initialize the EHRAuditLogTokenizer once
@@ -725,9 +694,7 @@ class EHRAuditLogDataModule():
                 test_input_strings = [self._truncate_to_last_n_tokens(s) for s in test_input_strings if isinstance(s, str) and s.strip()]
 
                 os.makedirs(os.path.join(self.path_prefix, token_cache_path), exist_ok=True)
-                np.save(os.path.join(self.path_prefix, token_cache_path, "testset_wpe_ids.npy"), np.array(test_wpe_ids))
-                np.save(os.path.join(self.path_prefix, token_cache_path, "test_timedelta_sequences.npy"),
-                        np.array(test_timedelta_seqs, dtype=object))
+
 
                 # print(f"Example truncated session string:\n{train_input_strings[0][:300]}")
                 # print(f"#tokens in truncated string: {len(tokenizer.tokenizer.tokenize(train_input_strings[0]))}")
@@ -760,24 +727,7 @@ class EHRAuditLogDataModule():
                 print(f"Saved tokenizer at {os.path.join(self.path_prefix,token_cache_path)}")
                 # print(f"[DATASET] Tokenizer length at dataset creation: {len(self.tokenizer.tokenizer)}")
 
-                # Assign binary error labels
-                test_labels = [1] * len(test_case_input_strings) + [0] * len(test_control_input_strings)
-                # Propagate Timedeltas with the tokenized dataset objects -- for downstream use during inference
-                ## Truncate and pad the timedelta sequences to exactly match the truncated&tokenized test sequences.
-                reserved_tokens = self.config.get("model_configs", {}).get(self.config.get("model", ""), {}).get(
-                    "prompt_reserved_tokens", 64)
-                truncate_len = self.n_positions - reserved_tokens
-                ### Pad with 0's for the padding positions -- easy to remove later via filtering
-                test_timedelta_seqs = [list(s)[-truncate_len:] + [0.0] * max(0, truncate_len - len(s)) for s in test_timedelta_seqs]
-                ### Replace the first action's timedelta (np.nan) in each sequence, with an arbitrary large timedelta value
-                test_timedelta_seqs = [[999 if np.isnan(x) else x for x in s] for s in
-                            test_timedelta_seqs]
-                np.save(os.path.join(self.path_prefix, token_cache_path, "test_timedelta_sequences_aligned.npy"),
-                        np.array(test_timedelta_seqs))
-                ## Add error labels and timedeltas as items into the tokenized data object
-                for i in range(len(tokenized_data)):
-                    tokenized_data[i]['error_label'] = test_labels[i]
-                    tokenized_data[i]['time_delta'] = test_timedelta_seqs[i]
+                
 
                 self.test_dataset = TokenizedDataSet(tokenized_data)
                 print(f"[INFO] Token length truncation stats:")
@@ -785,22 +735,7 @@ class EHRAuditLogDataModule():
                 print(f"   Sequences truncated: {self.truncated_sequences_count} "
                       f"({(self.truncated_sequences_count / max(1, self.total_sequences_count)) * 100:.2f}%)")
 
-                np.save(os.path.join(self.path_prefix, token_cache_path, "test_labels.npy"), np.array(test_labels))
-                print(f"Saved test_labels.npy with {len(test_labels)} entries to match test_dataset.")
 
-
-                if self.config.get("cache_static_features"):
-                    print(f"[INFO] Calculating & Caching static features...")
-                    # Construct static feature set while you have access to the exact test datasets
-                    # Create a dataframe to store static features
-                    df_static_features , wpe_ids = build_static_feature_matrix(test_wpe, test_control)
-                    # df_static_features['wpe_id'] = [dset.wpe_id for dset in test_wpe + test_control]
-                    df_static_features['wpe_id'] = wpe_ids
-                    assert len(df_static_features) == len(test_labels), \
-                        f"Mismatch: static features rows ({len(df_static_features)}) vs test labels ({len(test_labels)})"
-                    df_static_features['error_label'] = test_labels
-                    df_static_features.to_parquet(os.path.join(self.path_prefix, token_cache_path, "test_set_static_features.parquet"))
-                    print(f"FINISHED. Static Feature Matrix Columns:\n{df_static_features.columns}")
         # pdb.set_trace()
 
     def setup_testset(self, checkpoint_path=None, convert_field_vals_to: str = None):
@@ -838,19 +773,8 @@ class EHRAuditLogDataModule():
 
             self.test_dataset = TokenizedDataSet(tokenized_data)
 
-            # for i in range(len(self.test_dataset)):
-
             logging.info("Tokenized datasets loaded from cache. Skipping full setup.")
 
-            if os.path.exists(os.path.join(self.path_prefix, token_cache_path, f"test_set_static_features.parquet")):
-                static_features = pd.read_parquet(
-                    os.path.join(self.path_prefix, token_cache_path, f"test_set_static_features.parquet"))
-                print(f"[INFO] Confirmed pre-computed static feature matrix exists in cache."
-                      f"\n\tshape: {static_features.shape}"
-                      f"\n\tcolumns: {static_features.columns}")
-                del static_features
-            else:
-                print(f"[INFO] Static feature matrix does not exist in cache.")
         else:
             print(f"[INFO] reset_cache={reset_cache} | Cached files present? {os.path.exists(test_cache)}")
             ## IF reset_cache=True, run to the full preparation cycle.
@@ -885,18 +809,14 @@ class EHRAuditLogDataModule():
 
 
             test_input_strings = []
-            test_wpe_ids = []
-            test_timedelta_seqs = []
+
 
             ## Process case datasets
 
             ### CASE Dataset
             wpe_datasets = list(self.case_datasets)  # Each dataset corresponds to a unique WPE case
             test_wpe = wpe_datasets.copy()
-            # train_case_wpe_ids = [case_dataset.wpe_id for case_dataset in train_wpe]
-            # val_case_wpe_ids = [case_dataset.wpe_id for case_dataset in val_wpe]
-            test_case_wpe_ids = [case_dataset.wpe_id for case_dataset in test_wpe]
-            test_case_timedelta_sequences = [case_dataset.timedelta_sequences[0] for case_dataset in test_wpe]
+
 
             # Extract the action sequence preceding error from each WPE case.
             test_case_input_strings = [case_dataset.sessionStrings[0] for case_dataset in test_wpe]
@@ -906,16 +826,11 @@ class EHRAuditLogDataModule():
             # Append the case session strings into the session string bins.
             test_input_strings.extend(test_case_input_strings)
 
-            test_wpe_ids.extend(test_case_wpe_ids)
-            test_timedelta_seqs.extend(test_case_timedelta_sequences)
 
             ### CONTROL Dataset
             control_datasets = list(self.control_datasets)
             test_control = control_datasets.copy()
-            test_control_wpe_ids = [dataset.wpe_id for dataset in test_control if
-                                     len(dataset.sessionStrings) > 0]
-            test_control_timedelta_sequences = [TD_seq for control_dataset in test_control for TD_seq in
-                                                control_dataset.timedelta_sequences]
+
 
             # Extract the action sequence preceding error from each WPE case.
             # All control sessionStrings for the test cases are kept, which maintains the 1:N ratio.
@@ -934,8 +849,7 @@ class EHRAuditLogDataModule():
 
             # Append the control session strings into the session string bins.
             test_input_strings.extend(test_control_input_strings)
-            test_wpe_ids.extend(test_control_wpe_ids)
-            test_timedelta_seqs.extend(test_control_timedelta_sequences)
+
 
             # Step 3: Initialize the EHRAuditLogTokenizer once
             model_name = self.config["model"]
@@ -982,9 +896,7 @@ class EHRAuditLogDataModule():
             test_input_strings = [self._truncate_to_last_n_tokens(s) for s in test_input_strings if isinstance(s, str) and s.strip()]
 
             os.makedirs(os.path.join(self.path_prefix, token_cache_path), exist_ok=True)
-            np.save(os.path.join(self.path_prefix, token_cache_path, f"test_wpe_ids.npy"), np.array(test_wpe_ids))
-            np.save(os.path.join(self.path_prefix, token_cache_path, f"test_timedelta_sequences.npy"),
-                    np.array(test_timedelta_seqs, dtype=object))
+
 
             # print(f"Example truncated session string:\n{train_input_strings[0][:300]}")
             # print(f"#tokens in truncated string: {len(tokenizer.tokenizer.tokenize(train_input_strings[0]))}")
@@ -996,25 +908,7 @@ class EHRAuditLogDataModule():
             self.tokenizer.load(test_input_strings, padding='max_length', tag=f"_test")
             tokenized_data = self.tokenizer.get_tokenized_dataset()
 
-            # Assign binary error labels
-            test_labels = [1] * len(test_case_input_strings) + [0] * len(test_control_input_strings)
-            # Propagate Timedeltas with the tokenized dataset objects -- for downstream use during inference
-            ## Truncate and pad the timedelta sequences to exactly match the truncated&tokenized test sequences.
-            reserved_tokens = self.config.get("model_configs", {}).get(self.config.get("model", ""), {}).get(
-                "prompt_reserved_tokens", 64)
-            truncate_len = self.n_positions - reserved_tokens
-            ### Pad with 0's for the padding positions -- easy to remove later via filtering
-            test_timedelta_seqs = [list(s)[-truncate_len:] + [0.0] * max(0, truncate_len - len(s)) for s in
-                                   test_timedelta_seqs]
-            ### Replace the first action's timedelta (np.nan) in each sequence, with an arbitrary large timedelta value
-            test_timedelta_seqs = [[999 if np.isnan(x) else x for x in s] for s in
-                                   test_timedelta_seqs]
-            np.save(os.path.join(self.path_prefix, token_cache_path, "test_timedelta_sequences_aligned.npy"),
-                    np.array(test_timedelta_seqs))
-            ## Add error labels and timedeltas as items into the tokenized data object
-            for i in range(len(tokenized_data)):
-                tokenized_data[i]['error_label'] = test_labels[i]
-                tokenized_data[i]['time_delta'] = test_timedelta_seqs[i]
+            
 
             self.test_dataset = TokenizedDataSet(tokenized_data)
 
@@ -1023,22 +917,8 @@ class EHRAuditLogDataModule():
             print(f"   Sequences truncated: {self.truncated_sequences_count} "
                   f"({(self.truncated_sequences_count / max(1, self.total_sequences_count)) * 100:.2f}%)")
 
-            np.save(os.path.join(self.path_prefix, token_cache_path, f"test_labels.npy"), np.array(test_labels))
-            print(f"Saved test_labels.npy with {len(test_labels)} entries to match test_dataset.")
 
 
-            if self.config.get("cache_static_features"):
-                print(f"[INFO] Calculating & Caching static features...")
-                # Construct static feature set while you have access to the exact test datasets
-                # Create a dataframe to store static features
-                df_static_features , wpe_ids = build_static_feature_matrix(test_wpe, test_control)
-                # df_static_features['wpe_id'] = [dset.wpe_id for dset in test_wpe + test_control]
-                df_static_features['wpe_id'] = wpe_ids
-                assert len(df_static_features) == len(test_labels), \
-                    f"Mismatch: static features rows ({len(df_static_features)}) vs test labels ({len(test_labels)})"
-                df_static_features['error_label'] = test_labels
-                df_static_features.to_parquet(os.path.join(self.path_prefix, token_cache_path, f"test_set_static_features.parquet"))
-                print(f"FINISHED. Static Feature Matrix Columns:\n{df_static_features.columns}")
     def _truncate_to_last_n_tokens(self, text: str):
         # Just keep last "n_positions" long tokens directly before an order, to keep the most recent context
         # Efficient to do it before tokenization. Addresses issues of logs having different # actions in the preceding time window.
