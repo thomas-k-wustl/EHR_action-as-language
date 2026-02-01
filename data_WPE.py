@@ -18,8 +18,6 @@ from typing import List
 import pandas as pd
 from pandas import DataFrame
 
-from auditlog_split import calc_sessions
-from rm_auto_gen_actions import AuditLogCleaner
 
 class EHRAuditLogDataSet(Dataset):
     """
