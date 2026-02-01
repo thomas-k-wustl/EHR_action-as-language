@@ -4,7 +4,7 @@ This repository contains a research pipeline for modeling **EHR audit log action
 
 - preprocessing and caching time-windowed audit log sequences for ordering events (in this case, WPE cases and matched controls),
 - representing audit logs in **word-based** or **field-based / structured** forms,
-- optional **custom action-token vocabularies** (e.g., `[ACT_123]`) and structured special tokens,
+- optional **custom action-token vocabularies** (e.g., `[ACT_123]`) and structured special tokens for field-based models,
 - fine-tuning autoregressive LLMs (e.g., Llama 3) with **(Q)LoRA** using an SFT-style trainer,
 - evaluation and extraction of token-level metrics (accuracy, top-k, cross-entropy/perplexity, entropy),
 - baseline comparisons (Markov transition baseline) and model-performance comparison utilities.
@@ -44,18 +44,19 @@ Below, each Python file is listed in the order it appears in the typical workflo
 ### Data preprocessing
 
 - `prepare_data.py`  
-  **What it does:** Extracts orders and audit logs windows preceding the order from raw audit logs; writes cached parquet files per order; also generates the train val test split file by order ID as described below
+  **What it does:** Extracts orders and audit logs windows preceding the order from raw audit logs; writes cached parquet files per order; also generates the train val test split file by order ID as described below.  
   **Inputs:**  
   - `config_*.yaml` - specifies the experimental design
   - `wpe_list` CSV - list of orders
-  - Raw audit logs: `{audit_log_path}/{idx}{audit_log_file}`  
+  - Raw audit logs: `{audit_log_path}/{idx}{audit_log_file}`
+
   **Outputs:**  
   - Cached windows: `{audit_log_cache}/{idx}/{idx}_case_{min_prior}m.parquet`  
   - Cached controls: `{audit_log_cache}/{idx}/{idx}_control_{min_prior}m.parquet`  
   - `l_parquet_found.pkl`, `l_parquet_notFound.pkl` (informational; not used elsewhere)
 
 - `generate_fixed_split.py`  
-  **What it does:** Generates a train/val/test split by order ID, so orders from the same clinician in the same time window are kept in the same data split.
+  **What it does:** Generates a train/val/test split by order ID, so orders from the same clinician in the same time window are kept in the same data split.  
   **Inputs:** `wpe_list` CSV (orders list), `config_*.yaml` (split fractions, seed)  
   **Outputs:** `fixed_wpe_splits.pt` (specifies the train/val/test split)
 
@@ -63,14 +64,16 @@ Below, each Python file is listed in the order it appears in the typical workflo
   **What it does:** Builds the field-based tokenization, i.e., action → `[ACT_*]` token map when `custom_tokenization: True`.  
   **Inputs:**  
   - `config_*.yaml` (paths)  
-  - Cached case/control parquets in `{audit_log_cache}/{idx}/`  
+  - Cached case/control parquets in `{audit_log_cache}/{idx}/`
+ 
   **Outputs:** `action_token_map.json` (typically in the `wpe_list/` folder)
 
 - `tfidf_precompute.py`  
   **What it does:** Fits a character n-gram TF‑IDF model over all actions (used during inference‑time to retrieve the closed valid action to the generated natural text for the word-based model).  
   **Inputs:**  
   - `config_*.yaml` (paths)  
-  - Cached case/control parquets in `{audit_log_cache}/{idx}/`  
+  - Cached case/control parquets in `{audit_log_cache}/{idx}/`
+ 
   **Outputs:**  
   - `tfidf_vectorizer_char3_5.pkl`  
   - `A_valid_l2norm.npz`  
@@ -84,7 +87,8 @@ Below, each Python file is listed in the order it appears in the typical workflo
   - `fixed_wpe_splits.pt`  
   - Cached parquets in `{audit_log_cache}/{idx}/`  
   - `action_token_map.json` (if `custom_tokenization: True`)  
-  - `config_*.yaml`, `access_config.yaml`  
+  - `config_*.yaml`, `access_config.yaml`
+ 
   **Outputs:**  
   - `cached_case_datasets.pt`  
   - `control_chunk_*.pt`  
@@ -101,7 +105,8 @@ Below, each Python file is listed in the order it appears in the typical workflo
   **Inputs:**  
   - Tokenized datasets from `modules_WPE.py`  
   - TF‑IDF artifacts from `tfidf_precompute.py` (for word to closest action retrieval)  
-  - `config_*.yaml`, `access_config.yaml`  
+  - `config_*.yaml`, `access_config.yaml`
+ 
   **Outputs:**  
   - Model checkpoints (local or HF)  
   - Evaluation artifacts (per‑token metrics, embeddings, etc.)
