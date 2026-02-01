@@ -8,7 +8,6 @@ import random
 warnings.filterwarnings("ignore")
 import argparse
 import logging
-import sys
 # Configure logging to show messages with INFO level or higher
 # logging.basicConfig(level=logging.INFO)
 logging.basicConfig(
@@ -26,7 +25,7 @@ if not os.path.exists(HF_cache_path):
 os.environ['HUGGINGFACE_HUB_CACHE'] = HF_cache_path
 os.environ['TRANSFORMERS_CACHE'] = transformers_cache_path
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer
 import joblib
 
 
