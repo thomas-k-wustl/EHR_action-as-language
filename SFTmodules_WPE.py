@@ -66,16 +66,6 @@ def collate_fn(batch, tokenizer, config=None):
         'labels': labels
     }
 
-    # Optional: include error_label if it exists
-    if 'error_label' in batch[0]:
-        error_labels = torch.tensor([item['error_label'] for item in batch])
-        out['error_label'] = error_labels
-
-    # Optional: include time_delta if it exists
-    if 'time_delta' in batch[0]:
-        time_deltas = torch.tensor([item['time_delta'] for item in batch])
-        out['time_delta'] = time_deltas
-
     # Debug safety check for collate_fn
     vocab_size = len(tokenizer)
     labels_flat = labels[labels != -100]
@@ -472,98 +462,9 @@ class EHRAuditLogSFTTrainer:
             # num_workers=min(2, self.config['num_workers']),
             worker_init_fn=partial(worker_fn, seed=self.config["random_seed"]),
             pin_memory=True,
-            collate_fn=partial(collate_fn, tokenizer=self.tokenizer, config=self.config),  #n_positions=self.n_positions), # investigate
+            collate_fn=partial(collate_fn, tokenizer=self.tokenizer, config=self.config), 
             shuffle=False,  # No shuffle to ensure consistent testing
         )
-
-    def evaluate_test_set(self):
-        # Only supports accuracy & perplexity measures.
-        # Use it for debugging, but will eventually be removed.
-        logging.info("Evaluating on test set...")
-
-        # Setup minimal eval args
-        eval_args = TrainingArguments(
-            output_dir=os.path.join(self.model_save_path, "eval"),
-            per_device_eval_batch_size=1,
-            do_predict=True,
-            report_to=[], #specify [] for debugging #specify "wandb" for reporting
-            logging_dir=os.path.join(self.model_save_path, "logs"),
-        )
-
-        trainer = Trainer(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            args=eval_args
-        )
-
-        # For each of the m sequences in the test set with each sequence n tokens long, it computes n-1 token-level predictions.
-        output = trainer.predict(self.test_data)
-        logits = output.predictions
-        labels = output.label_ids
-        # Calculate average token-level cross-entropy loss over the entire test set
-        loss = output.metrics.get("test_loss")
-
-        # Compute metrics
-        preds = np.argmax(logits, axis=-1)
-        mask = labels != -100  # Ignore padding tokens
-        # flattened, masked, and compared to ground-truth tokens (also flattened).
-        # The final acc is the aggregated accuracy across all valid tokens in all m sequences in the test set.
-        acc = accuracy_score(labels[mask].flatten(), preds[mask].flatten())
-        # Convert cross-entropy to perplexity by exponentiation. Same aggregation logic as the accuracy.
-        ppl = torch.exp(torch.tensor(loss)).item() if loss is not None else None
-
-        print(f"[RESULT] Test Accuracy: {acc:.4f}")
-        print(f"[RESULT] Test Perplexity: {ppl:.4f}" if ppl else "[RESULT] Perplexity unavailable")
-
-    def extract_sequence_embeddings(self, save_path=None):
-        """
-        Extracts the last-token hidden state (sequence embedding) for each test sample.
-        Saves to `save_path` if specified.
-        """
-        self.model.eval()
-        embeddings = []
-        dataloader = self.test_dataloader()
-        with torch.no_grad():
-            for batch in tqdm(dataloader, desc="Extracting sequence embeddings"):
-                input_ids = batch['input_ids'].to(self.device)
-                attention_mask = batch.get('attention_mask', None)
-                if attention_mask is not None:
-                    attention_mask = attention_mask.to(self.device)
-
-                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
-                last_hidden = outputs.hidden_states[-1][:, -1, :]  # final token embedding
-                embeddings.append(last_hidden.cpu())
-        all_embeddings = torch.cat(embeddings, dim=0)
-        if save_path:
-            torch.save(all_embeddings, save_path)
-        return all_embeddings
-
-    def extract_per_token_cross_entropy(self, save_path=None):
-        """
-        Extracts per-token cross-entropy and per-sequence perplexity.
-        Saves to .npy if `save_path` is provided.
-        """
-        self.model.eval()
-        ce_values = []
-        dataloader = self.test_dataloader()
-
-        with torch.no_grad():
-            for batch in tqdm(dataloader, desc="Extracting token-level CE"):
-                input_ids = batch['input_ids'].to(self.device)
-                outputs = self.model(input_ids=input_ids, labels=input_ids)
-
-                logits = outputs.logits[:, :-1, :]  # predict next token
-                labels = input_ids[:, 1:]
-
-                log_probs = F.log_softmax(logits, dim=-1)
-                token_log_probs = log_probs.gather(2, labels.unsqueeze(-1)).squeeze(-1)
-                token_ce = -token_log_probs.squeeze(0).cpu().tolist()
-                ce_values.append(token_ce)
-
-        if save_path:
-            np.save(os.path.join(save_path, "cross_entropy.npy"), ce_values)
-
-        return ce_values
 
     def evaluate_and_extract_all(self, save_dir=None):
         """
@@ -678,15 +579,7 @@ class EHRAuditLogSFTTrainer:
                             # print(f"[DEBUG] Decoded prompt text for first sequence:\n{prompt_text}")
 
                     else:
-                        ## Redundant re-shifting. Tokenized dataset already has correct full input ID seq and left-shifted labels.
-                        # # Baseline: standard next-token prediction (shift input_ids by 1)
-                        # inputs = input_ids[:, :-1]
-                        # labels = input_ids[:, 1:]
-                        ## New fix that directly uses batch-stored input_ids and labels which were already prepared and shifted correctly.
-                        ## if no prompting, we don't need the first warm-up part of the inputs
-                        # inputs = input_ids
-                        # labels = batch['labels'].to(self.device)
-                        # For non-prompted version only
+
                         inputs = input_ids[:, self.config.get("skip_N_tokens", 0):]
                         attention_mask = attention_mask[:, self.config.get("skip_N_tokens", 0):]
                         labels = batch['labels'].to(self.device)
@@ -696,17 +589,7 @@ class EHRAuditLogSFTTrainer:
                             labels = torch.roll(input_ids, shifts=-1, dims=1)
                             # Set last token of each sequence to -100 (no next-token target)
                             labels[:, -1] = -100
-                        # safe_inputs = input_ids.clone()
-                        # safe_inputs[safe_inputs == -100] = self.tokenizer.pad_token_id
-                        # safe_labels = labels.clone()
-                        # safe_labels[safe_labels == -100] = self.tokenizer.pad_token_id
-                        # decoded_input = self.tokenizer.decode(safe_inputs[0], skip_special_tokens=False)
-                        # decoded_text = self.tokenizer.decode(safe_labels[0], skip_special_tokens=False)
-                        # print(f"[DEBUG] first input:{decoded_input}")
-                        # print(f"[DEBUG] first label:{decoded_text}")
-                        # row_token_id = self.tokenizer.convert_tokens_to_ids("<ROW>")
-                        # print(f"When first loaded: <ROW> count in input_ids = {(input_ids == row_token_id).sum().item()}")
-                        # print(f"When first loaded: <ROW> count in labels = {(labels == row_token_id).sum().item()}")
+
 
 
                     # DEBUG: Debug check to catch dataset issues
@@ -730,21 +613,8 @@ class EHRAuditLogSFTTrainer:
                         logits = logits[:, self.config.get("skip_N_tokens", 0):, :]
 
                     labels = labels[:, self.config.get("skip_N_tokens", 0):]
-                    # if self.config['timedelta_cutoff'] is not None:
-                    #     time_deltas = time_deltas[:, self.config.get("skip_N_tokens", 0):]
 
-                    # # Keep only sequences with at least 1 token after skipping first N tokens
-                    # # print(f"[DEBUG] Batch size before masking short sequences: {labels.size(0)}")
-                    # valid_lengths = (labels != -100).sum(dim=1)
-                    # keep_mask = valid_lengths >= 1  # at least 1 valid token after skipping
-                    # if not keep_mask.any():
-                    #     # print(f"[DEBUG] All sequences skipped in this batch, due to their length < skip_N_tokens (warm-up sequence)")
-                    #     continue
-                    # # print(f"[DEBUG] Retained {keep_mask.sum().item()} sequences out of {labels.size(0)}")
-                    # logits = logits[keep_mask]
-                    # labels = labels[keep_mask]
-                    # if self.config['timedelta_cutoff'] is not None:
-                    #     time_deltas = time_deltas[keep_mask]
+
 
                     ## If using field-based approach, apply logit masking to constrain model output to valid action tokens (e.g., [ACT_xxx])
                     if self.config.get('custom_tokenization') and self.config.get("use_prompt") and self.config.get("instruct_text"):
@@ -775,18 +645,13 @@ class EHRAuditLogSFTTrainer:
                     labels_flat = labels.squeeze(0)
 
 
-                    mask = (labels_flat != -100) & (labels_flat != self.tokenizer.pad_token_id) & (labels_flat != self.tokenizer.convert_tokens_to_ids("<ROW>")) \
-                            & (labels_flat != self.tokenizer.convert_tokens_to_ids("<FIRST_ROW>")) \
-                            & (labels_flat != self.tokenizer.convert_tokens_to_ids(['[TD_0]', '[TD_10]', '[TD_60]', '[TD_>60]']))
+                    mask = (labels_flat != -100) & (labels_flat != self.tokenizer.pad_token_id) & (labels_flat != self.tokenizer.convert_tokens_to_ids("<ROW>"))
                     correct_count = (preds[mask] == labels_flat[mask]).sum().item()
                     total = mask.sum().item()
 
                     if (self.config.get("custom_tokenization") == False and self.config.get("use_delimiter")):
                         row_token_id = self.tokenizer.convert_tokens_to_ids("<ROW>")
-                        # print(f"row_token_id: {row_token_id}")
-                        # print([tok for tok in self.tokenizer.get_vocab().keys() if "ROW" in tok])
-                        # print("Is ROW token in labels_flat?", (labels_flat == row_token_id).any().item())
-                        # print(f"# row_token_id in labels_flat: {(labels_flat == row_token_id).sum()}")
+
                         mask = (labels_flat != -100) & (labels_flat != self.tokenizer.pad_token_id)
                         # Derive label chunks based on <ROW>
                         # print(f"labels_flat: {labels_flat}")
@@ -866,10 +731,8 @@ class EHRAuditLogSFTTrainer:
                         ####################################################################
 
                         mask = (labels_flat != -100) & (labels_flat != self.tokenizer.pad_token_id) & (
-                                    labels_flat != self.tokenizer.convert_tokens_to_ids("<ROW>")) \
-                               & (labels_flat != self.tokenizer.convert_tokens_to_ids("<FIRST_ROW>")) \
-                               & (labels_flat != self.tokenizer.convert_tokens_to_ids(
-                            ['[TD_0]', '[TD_10]', '[TD_60]', '[TD_>60]']))
+                                    labels_flat != self.tokenizer.convert_tokens_to_ids("<ROW>"))
+                               
 
                     # Compute top-k accuracy (k=5)
                     topk_preds = torch.topk(logits, k=5, dim=-1).indices  # shape: (1, seq_len-1, 5)
