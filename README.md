@@ -55,11 +55,6 @@ Below, each Python file is listed in the order it appears in the typical workflo
   - Cached controls: `{audit_log_cache}/{idx}/{idx}_control_{min_prior}m.parquet`  
   - `l_parquet_found.pkl`, `l_parquet_notFound.pkl` (informational; not used elsewhere)
 
-- `generate_fixed_split.py`  
-  **What it does:** Generates a train/val/test split by order ID, so orders from the same clinician in the same time window are kept in the same data split.  
-  **Inputs:** `wpe_list` CSV (orders list), `config_*.yaml` (split fractions, seed)  
-  **Outputs:** `fixed_wpe_splits.pt` (specifies the train/val/test split)
-
 - `generate_action_name_token_map.py`  
   **What it does:** Builds the field-based tokenization, i.e., action → `[ACT_*]` token map when `custom_tokenization: True`.  
   **Inputs:**  
