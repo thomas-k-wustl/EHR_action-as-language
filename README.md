@@ -15,19 +15,12 @@ This repository contains a research pipeline for modeling **EHR audit log action
 
 ## Contents
 
+- [Contents](#contents)
 - [Conceptual overview](#conceptual-overview)
-- [Repository layout](#repository-layout)
+- [Repository layout](#repository-layout-ordered-by-pipeline-stage)
+- [End-to-end run (typical)](#end-to-end-run-typical)
 - [Requirements](#requirements)
 - [Configuration](#configuration)
-- [Data layout expected by the pipeline](#data-layout-expected-by-the-pipeline)
-- [Quickstart](#quickstart)
-- [Running experiments](#running-experiments)
-- [Outputs](#outputs)
-- [Baselines and comparisons](#baselines-and-comparisons)
-- [Reproducibility notes](#reproducibility-notes)
-- [Citation](#citation)
-- [License](#license)
-- [Contact](#contact)
 
 ---
 
@@ -46,41 +39,118 @@ This codebase is currently oriented around **ordering events** (e.g., 30 minutes
 
 ## Repository layout
 
-Top-level scripts/modules included in this repo:
+Below, each Python file is listed in the order it appears in the typical workflow. For each file: **what it does**, **inputs**, and **outputs**. Stages are labeled as **Data preprocessing** vs **Model training / evaluation**.
 
-- `main_WPE.py`  
-  Primary entry point to run the order pipeline (data module setup, training, evaluation, extraction).
-
-- `modules_WPE.py`  
-  Core data and tokenization utilities:
-  - `EHRAuditLogDataModule` (dataset loading/caching + dataloaders)
-  - `EHRAuditLogTokenizer` (special tokens, optional action token maps, truncation/padding)
-
-- `data_WPE.py`  
-  Dataset definition (`EHRAuditLogDataSet`) and WPE-specific loading assumptions.
-
-- `SFTmodules_WPE.py`  
-  Trainer utilities for SFT-style fine-tuning and evaluation callbacks (e.g., `EHRAuditLogSFTTrainer`).
+### Data preprocessing
 
 - `prepare_data.py`  
-  Utilities for building cached parquet windows and fixed splits.
+  **What it does:** Extracts orders and audit logs windows preceding the order from raw audit logs; writes cached parquet files per order; also writes the deterministic split file.  
+  **Inputs:**  
+  - `config_*.yaml` - specifies the experimental design
+  - `wpe_list` CSV - list of orders
+  - Raw audit logs: `{audit_log_path}/{idx}{audit_log_file}`  
+  **Outputs:**  
+  - Cached windows: `{audit_log_cache}/{idx}/{idx}_case_{min_prior}m.parquet`  
+  - Cached controls: `{audit_log_cache}/{idx}/{idx}_control_{min_prior}m.parquet`  
+  - `l_parquet_found.pkl`, `l_parquet_notFound.pkl` (informational; not used elsewhere)
 
 - `generate_fixed_split.py`  
-  Deterministic train/val/test split generation from a WPE list.
+  **What it does:** Generates a train/val/test split by order ID, so orders from the same clinician in the same time window are kept in the same data split.
+  **Inputs:** `wpe_list` CSV (orders list), `config_*.yaml` (split fractions, seed)  
+  **Outputs:** `fixed_wpe_splits.pt` (specifies the train/val/test split)
 
 - `generate_action_name_token_map.py`  
-  Builds an action → `[ACT_*]` mapping JSON used when `custom_tokenization: True`.
-
-- `markov_baseline.py`, `markov_baseline_updated.py`  
-  Markov transition baseline(s) for next-action prediction comparisons.
-
-- `model_performance_comparison.py`  
-  Utilities to compare metrics across models/runs and produce summary reports.
+  **What it does:** Builds the field-based tokenization, i.e., action → `[ACT_*]` token map when `custom_tokenization: True`.  
+  **Inputs:**  
+  - `config_*.yaml` (paths)  
+  - Cached case/control parquets in `{audit_log_cache}/{idx}/`  
+  **Outputs:** `action_token_map.json` (typically in the `wpe_list/` folder)
 
 - `tfidf_precompute.py`  
-  Precompute TF-IDF features (useful for earlier-stage representations or baselines).
+  **What it does:** Fits a character n-gram TF‑IDF model over all actions (used during inference‑time to retrieve the closed valid action to the generated natural text for the word-based model).  
+  **Inputs:**  
+  - `config_*.yaml` (paths)  
+  - Cached case/control parquets in `{audit_log_cache}/{idx}/`  
+  **Outputs:**  
+  - `tfidf_vectorizer_char3_5.pkl`  
+  - `A_valid_l2norm.npz`  
+  - `valid_action_texts.pkl` / `.txt`
 
-> **Note on private/internal modules**: `data_WPE.py` imports `auditlog_split` and `rm_auto_gen_actions`. If these modules are part of your private repository but not included in this snapshot, ensure they are available on `PYTHONPATH`. If they are intentionally not distributed, see “Reproducibility notes” for how to stub/disable those parts.
+### Model training / evaluation
+
+- `modules_WPE.py`  
+  **What it does:** Loads cached case/control parquets into dataset objects, applies the WPE split, builds train/val/test sequences, tokenizes them, and writes tokenized caches.  
+  **Inputs:**  
+  - `fixed_wpe_splits.pt`  
+  - Cached parquets in `{audit_log_cache}/{idx}/`  
+  - `action_token_map.json` (if `custom_tokenization: True`)  
+  - `config_*.yaml`, `access_config.yaml`  
+  **Outputs:**  
+  - `cached_case_datasets.pt`  
+  - `control_chunk_*.pt`  
+  - `tokenized_dataset_{train,val,test}.pt`  
+  - `test_labels.npy`, `test_timedelta_sequences*.npy`, `testset_wpe_ids.npy`
+
+- `data_WPE.py`  
+  **What it does:** Defines `EHRAuditLogDataSet` and turns a case/control parquet into session strings + timedeltas.  
+  **Inputs:** case/control parquet files produced by `prepare_data.py`  
+  **Outputs:** In‑memory dataset objects used by `modules_WPE.py` (no direct file output)
+
+- `SFTmodules_WPE.py`  
+  **What it does:** Fine‑tunes the LLM (SFT/LoRA/QLoRA), evaluates next‑action prediction, and extracts token‑level metrics.  
+  **Inputs:**  
+  - Tokenized datasets from `modules_WPE.py`  
+  - TF‑IDF artifacts from `tfidf_precompute.py` (for word to closest action retrieval)  
+  - `config_*.yaml`, `access_config.yaml`  
+  **Outputs:**  
+  - Model checkpoints (local or HF)  
+  - Evaluation artifacts (per‑token metrics, embeddings, etc.)
+
+- `main_WPE.py`  
+  **What it does:** Orchestrates the full pipeline: data module setup → model training → evaluation → result saving.  
+  **Inputs:** `config_*.yaml`, `access_config.yaml`  
+  **Outputs:** Model checkpoints + evaluation outputs (in configured `results_path`)
+
+- `markov_baseline.py`, `markov_baseline_updated.py`  
+  **What it does:** Markov next‑action baselines for comparison to the LLM.  
+  **Inputs:** Tokenized datasets / cached data, `config_*.yaml`  
+  **Outputs:** Baseline metrics
+
+- `model_performance_comparison.py`  
+  **What it does:** Compares metrics across model runs and generates summary statistics.  
+  **Inputs:** Saved evaluation outputs from multiple runs  
+  **Outputs:** Comparison tables / reports
+
+---
+
+## End-to-end run (typical)
+
+1) **Prepare cached case/control windows + split file**
+```
+python prepare_data.py
+```
+
+2) **Optional: build action token map for field-based models (only if `custom_tokenization: True`)**
+```
+python generate_action_name_token_map.py --config_file config_fullWPE_WB_prompt-T3.yaml --top_k 5000
+```
+
+3) **Optional: precompute TF‑IDF artifacts (for word-action retrieval chunk‑level evaluation in `SFTmodules_WPE.py`)**
+```
+python tfidf_precompute.py --config_file config_fullWPE_WB_prompt-T3.yaml
+```
+
+4) **Train + evaluate**
+```
+python main_WPE.py --config_file config_fullWPE_WB_prompt-T3.yaml
+```
+
+5) **Compare runs (optional)**
+```
+python model_performance_comparison.py --config_file config_fullWPE_WB_prompt-T3.yaml
+```
+
+> **Note on missing modules**: `data_WPE.py` imports `auditlog_split` and `rm_auto_gen_actions`. These functions are currently not included in the repository.
 
 ---
 
@@ -99,10 +169,6 @@ Top-level scripts/modules included in this repo:
 - `matplotlib`
 - optional: `wandb`
 
-Because this repository is used in protected environments with varying cluster/container setups, dependency installation is typically done via your lab’s environment management (conda, pip, or container images). If you plan to share this repo beyond your lab, consider adding either:
-- `requirements.txt`, or
-- `environment.yml` (conda), or
-- a container recipe.
 
 ---
 
@@ -113,7 +179,7 @@ Because this repository is used in protected environments with varying cluster/c
 - `config_fullWPE_WB_prompt-T3.yaml`
 
 ### Required: `access_config.yaml`
-`main_WPE.py` loads an `access_config.yaml` located next to the script:
+`main_WPE.py` loads an `access_config.yaml`, which is used to configure your hugging-face and WANDB tokens:
 ```yaml
 HF_access_token: "YOUR_HF_TOKEN"
 # Optional:
