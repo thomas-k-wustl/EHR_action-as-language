@@ -223,32 +223,6 @@ class EHRAuditLogDataSet(Dataset):
 
             self.timedelta_sequences = organize_timedeltas(df)
 
-        else:
-            # Separate the data into sessions
-            # Definition of a "session"
-            # Intuition: sequence of consecutive actions in audit logs that represent continuous activity on EHR.
-            # Technical: a chunk of consecutive rows from the audit logs table, for a single user. Split by 5-min breaks.
-            df = calc_sessions(df, self.timestamp_col, cap_gap_minutes=self.session_sep_min,
-                               pat_session=False)
-            # print(f"Sessions calculated. Number of sessions: {df['session_ID'].nunique()}")
-
-            # print(f"Sessions calculated. Distribution of session length: {df['session_ID'].value_counts().describe(percentiles=[0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99])}")
-
-        if self.clean_auditLogs:
-
-            # Clean up audit logs
-            cleaner = AuditLogCleaner(df=df,
-                                      timestamp_col=self.timestamp_col,
-                                      event_type_col=self.event_type_cols[0],
-                                      cap_gap_minutes=self.session_sep_min)
-            print("cleaning audit logs...")
-            print(f"Size before cleaning: {len(cleaner.df)}")
-            # # Remove auto-generated actions
-            cleaner.df = cleaner.remove_auto_gen(remove_same_actions=False)
-            # # Remove repeated consecutive appearances of "Smart" actions (known pattern of auto-generation)
-            # cleaner.df = cleaner.truncate_smart_actions()
-            df = cleaner.df
-            print(f"Size after cleaning: {len(cleaner.df)}")
 
 
 
