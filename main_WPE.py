@@ -42,15 +42,11 @@ os.environ['MPLCONFIGDIR'] = MPL_cache_path
 
 ###########################################################################################
 # import lightning.pytorch as pl
-import numpy as np
 import torch
 torch.cuda.empty_cache()
 import yaml
-import pandas as pd
 from modules_WPE import EHRAuditLogDataModule, EHRAuditLogTokenizer
-# from modules_blora import BayesianLoRA
 from SFTmodules_WPE import EHRAuditLogSFTTrainer
-import gc
 import warnings
 import logging
 # Configure logging to show messages with INFO level or higher
