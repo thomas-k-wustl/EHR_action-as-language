@@ -17,7 +17,7 @@ This repository contains a research pipeline for modeling **EHR audit log action
 
 - [Contents](#contents)
 - [Conceptual overview](#conceptual-overview)
-- [Repository layout](#repository-layout-ordered-by-pipeline-stage)
+- [Repository layout](#repository-layout)
 - [End-to-end run (typical)](#end-to-end-run-typical)
 - [Requirements](#requirements)
 - [Configuration](#configuration)
@@ -44,7 +44,7 @@ Below, each Python file is listed in the order it appears in the typical workflo
 ### Data preprocessing
 
 - `prepare_data.py`  
-  **What it does:** Extracts orders and audit logs windows preceding the order from raw audit logs; writes cached parquet files per order; also writes the deterministic split file.  
+  **What it does:** Extracts orders and audit logs windows preceding the order from raw audit logs; writes cached parquet files per order; also generates the train val test split file by order ID as described below
   **Inputs:**  
   - `config_*.yaml` - specifies the experimental design
   - `wpe_list` CSV - list of orders
