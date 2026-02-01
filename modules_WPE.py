@@ -1228,11 +1228,6 @@ class EHRAuditLogTokenizer:
         if not self.tokenizer:
             raise ValueError("Tokenizer not loaded. Call load_tokenizer() first.")
 
-        # self.tokenized_dataset = [self.tokenizer(sentence, return_tensors='pt') for sentence in dataset]
-        # self.tokenized_dataset = [self.tokenizer(sentence, return_tensors='pt',truncation=True, padding='max_length', max_length=self.n_positions) for sentence in dataset]
-        # # Add attention mask extraction
-        # self.tokenized_dataset = [{'input_ids': item['input_ids'], 'attention_mask': item['attention_mask']} for item in
-        #                           self.tokenized_dataset]
 
         self.tokenized_dataset = []
         reserved_tokens = self.config.get("model_configs", {}).get(self.config.get("model", ""), {}).get(
@@ -1250,12 +1245,6 @@ class EHRAuditLogTokenizer:
                 # Mask out <ROW> tokens from loss computation
                 row_token_id = self.tokenizer.convert_tokens_to_ids("<ROW>")
                 labels[labels == row_token_id] = -100
-
-            if self.config.get("num_fields") > 1:
-                first_row_token_id = self.tokenizer.convert_tokens_to_ids("<FIRST_ROW>")
-                labels[labels == first_row_token_id] = -100
-                TD_token_ids = self.tokenizer.convert_tokens_to_ids(['[TD_0]', '[TD_10]', '[TD_60]', '[TD_>60]'])
-                labels[torch.isin(labels, torch.tensor(TD_token_ids, device=labels.device))] = -100
 
             # Shift labels by one position to the left
             labels = torch.roll(labels, shifts=-1)
