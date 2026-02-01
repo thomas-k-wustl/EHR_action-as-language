@@ -147,79 +147,14 @@ class EHRAuditLogDataSet(Dataset):
             df[self.timestamp_col] = pd.to_datetime(df[self.timestamp_col]) #convert to nanoseconds since Unix epoch
             df[self.timestamp_col] = df[self.timestamp_col].astype(np.int64) // 10 ** 9 #covert into seconds
 
-        # # save df for potential downstream use. columns=[METRIC_ID, METRIC_NAME, PAT_ID, ACCESS_TIME, ACCESS_INSTANT, USER_ID]
-        # self.df = df
-
-        # Sort by timestamp
-        # df = df.sort_values(by=self.timestamp_sort_cols) #sort by (ACCESS_TIME, ACCESS_INSTANT)
-        # df = df.drop(columns=set(self.timestamp_sort_cols) - {self.timestamp_col}) #drop ACCESS_INSTANT
 
         if self.unit_string == "all": # use the entire block sequence preceding an order
-            # Timedelta_style1: diff(current, previous)
-            time_deltas = df.loc[:, self.timestamp_col].diff(periods=1)
-            # Timedelta_style2: diff(current, next)
-            # time_deltas = df.loc[:, 'ACCESS_INSTANT'].diff(periods=-1)*-1
-
-            # Must impute first row's timedelta with an artificial value > SESSION_INTERVAL to denote session start
-            time_deltas.fillna(np.nan, inplace=True)
-
-            df['TIME_DELTA'] = time_deltas.dt.total_seconds()
-            # print(time_deltas, time_deltas.values[0], type(time_deltas.values[0]),
-            #       time_deltas.values[0], type(time_deltas.values[0]))
-
-            # self.timedelta_sequence = df['TIME_DELTA'].apply(
-            #     lambda x: np.nan if pd.isnull(x) else x
-            # ).to_numpy()
-
-            def bucket_time_delta(seconds, threshold=60):
-                # 60 sec is reasonable cutoff.
-                # Beyond that may cause multi-token fragmentation
-                # Fine-binning for 0-60 seconds
-                if seconds <= threshold:
-                    return int(seconds)  # fine-grained for rapid actions
-                # Log-binning for >60 seconds
-                else:
-                    return int(np.log1p(seconds)) + threshold  # coarser for large delays; log1p = log(seconds + 1) safe for 0
-
-            ## if using bucket_time_delta (more applicable for word-based free-text tokenization approach)
-            # df['TIME_DELTA'] = df['TIME_DELTA'].apply(lambda x: '<FIRST_ROW>' if pd.isnull(x) else str(bucket_time_delta(x)))
 
             # Create a placeholder column 'session_ID' to make it compatible with the pipeline
             if 'control' in self.log_name:
                 df['session_ID'] = df['control_idx']
             else:
                 df['session_ID'] = 0
-
-            def organize_timedeltas(df: DataFrame):
-                """
-
-                :param df:
-                # :return: session_TDs (list)
-                """
-                list_session_TDs = []
-                curr_session_ID = None
-
-                for i, row in df.iterrows():
-                    if row['session_ID'] != curr_session_ID:
-                        session_TDs = []
-                        # sessionString = audit_log_headers + row_delimiter
-                        curr_session_ID = row['session_ID']
-
-                    session_TDs.append(row['TIME_DELTA'])
-
-                    try:
-                        if (i == len(df) - 1) or (i < len(df) - 1 and df.loc[i + 1, 'session_ID'] != curr_session_ID):
-                            # if current row == last row in session
-                            list_session_TDs.append(session_TDs)
-                    except Exception as e:
-                        # Print the error trace
-                        print(f"An error occurred: {type(e).__name__}: {e}")
-                        traceback.print_exc()
-                        print(f"i: {i}, len(df): {len(df)}")
-                    # return list_rowStrings, list_sessionStrings
-                return list_session_TDs
-
-            self.timedelta_sequences = organize_timedeltas(df)
 
 
 
@@ -229,7 +164,7 @@ class EHRAuditLogDataSet(Dataset):
         # Keep only the necessary columns
         # At this point, we should have : USER_ID, time_delta, session_ID, PAT_ID,  METRIC_NAME
         # (in this order; from least uncertain to most from the author's understanding of the data)
-        cols_to_tokenize = [self.prov_col] + ['TIME_DELTA', 'session_ID'] + [self.pat_col] + self.event_type_cols
+        cols_to_tokenize = [self.prov_col] + ['session_ID'] + [self.pat_col] + self.event_type_cols
         df = df[cols_to_tokenize]
 
 
@@ -328,14 +263,6 @@ class EHRAuditLogDataSet(Dataset):
 
         if self.num_fields==1:
             cols_to_keep = self.event_type_cols
-        elif self.num_fields==2:
-            cols_to_keep = ['TIME_DELTA'] + self.event_type_cols
-        elif self.num_fields ==3:
-            cols_to_keep = [self.prov_col] + ['TIME_DELTA'] + self.event_type_cols
-        elif self.num_fields==4:
-            cols_to_keep = [self.prov_col] + ['TIME_DELTA'] + [self.pat_col] + self.event_type_cols
-        elif self.num_fields==5:
-            cols_to_keep = cols_to_tokenize
         else:
             logging.warn("Specify correct num_fields parameter in the config.")
 
@@ -346,35 +273,7 @@ class EHRAuditLogDataSet(Dataset):
 
 
 
-        # print("Entering DEBUGGING mode...")
-        # import pdb;
-        # pdb.set_trace()
-        # print("Ended DEBUGGING mode. Resuming code run...")
-
-        # Have a dataframe subset saved for later use
-        # self.df = df[['session_ID']+cols_to_keep]
-        # self.df = df
-
-        # Added debug print statement
-        # print(f"Row strings created. Number of sessions: {len(self.rowStrings)}")
-        # print(f"Session strings created. Number of sessions: {len(self.sessionStrings)}")
-        # print(f"Example sessionString: {self.sessionStrings[0]}")
-
-        # if self.cache is not None:
-        #     cache_path = os.path.normpath(self.root_dir)
-        #     if not os.path.exists(cache_path):
-        #         os.makedirs(cache_path)
-        #     with open(os.path.normpath(os.path.join(cache_path, "rowStrings.pkl")), "wb") as f:
-        #         pickle.dump(self.rowStrings, f)
-        #     with open(os.path.normpath(os.path.join(cache_path, "sessionStrings.pkl")), "wb") as f:
-        #         pickle.dump(self.sessionStrings, f)
-        # print(f"[DEBUG] {self.log_name}: final df shape = {self.df.shape}")
-        # print(f"[DEBUG] {self.log_name}: number of sessionStrings = {len(self.sessionStrings)}")
-        # if 'session_ID' in df.columns:
-        #     print(f"[DEBUG] {self.log_name}: unique control_idx values = {df['session_ID'].unique()}")
-        # print(f"[DEBUG] {self.log_name}: sample_n_controls = {self.config.get('sample_n_controls')}")
-        # if 'control' in self.log_name:
-        #     sys.exit("Stopping here for debug!")
+        
 
 
 
@@ -414,8 +313,5 @@ class TokenizedDataSet(Dataset):
             'attention_mask': item['attention_mask'],
             'labels': item['labels']
         }
-        if 'error_label' in item:
-            result['error_label'] = item['error_label']  # propagate label
-        if 'time_delta' in item:
-            result['time_delta'] = item['time_delta'] # propagate timedelta
+
         return result
