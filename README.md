@@ -150,8 +150,6 @@ python main_WPE.py --config_file config_fullWPE_WB_prompt-T3.yaml
 python model_performance_comparison.py --config_file config_fullWPE_WB_prompt-T3.yaml
 ```
 
-> **Note on missing modules**: `data_WPE.py` imports `auditlog_split` and `rm_auto_gen_actions`. These functions are currently not included in the repository.
-
 ---
 
 ## Requirements
