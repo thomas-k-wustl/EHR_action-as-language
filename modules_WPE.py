@@ -528,12 +528,6 @@ class EHRAuditLogDataModule():
                 print("Test set:")
                 self.tokenizer.load_tokens_from_cache(tag="_test")
                 tokenized_data = self.tokenizer.get_tokenized_dataset()
-                # test_labels = np.load(os.path.join(self.path_prefix, token_cache_path, "test_labels.npy"))
-                # test_timedelta_seqs = np.load(os.path.join(self.path_prefix, token_cache_path, "test_timedelta_sequences_aligned.npy"))
-                # ## Add error labels and timedeltas as items into the tokenized data object
-                # for i in range(len(tokenized_data)):
-                #     tokenized_data[i]['error_label'] = test_labels[i]
-                #     tokenized_data[i]['time_delta'] = test_timedelta_seqs[i]
 
                 self.test_dataset = TokenizedDataSet(tokenized_data)
 
@@ -859,20 +853,10 @@ class EHRAuditLogDataModule():
             print("Test set:")
             self.tokenizer.load_tokens_from_cache(tag=f"_test")
             tokenized_data = self.tokenizer.get_tokenized_dataset()
-            # test_labels = np.load(os.path.join(self.path_prefix, token_cache_path, f"test_labels.npy"))
-            # test_timedelta_seqs = np.load(
-            #     os.path.join(self.path_prefix, token_cache_path, "test_timedelta_sequences_aligned.npy"))
-
-            # ## Add error labels and timedeltas as items into the tokenized data object
-            # for i in range(len(tokenized_data)):
-            #     tokenized_data[i]['error_label'] = test_labels[i]
-            #     tokenized_data[i]['time_delta'] = test_timedelta_seqs[i]
 
             self.test_dataset = TokenizedDataSet(tokenized_data)
-            # self.test_dataset = TokenizedDataSet(tokenizer.get_tokenized_dataset())
 
             # for i in range(len(self.test_dataset)):
-            #     self.test_dataset[i]["error_label"] = int(test_labels[i])
 
             logging.info("Tokenized datasets loaded from cache. Skipping full setup.")
 
@@ -1262,72 +1246,6 @@ class EHRAuditLogDataModule():
                     if verb == verb_list[-1]:
                         print(
                             f"Not enough verbs collected to map all unique values {len(single_token_verbs)}/{df_all['ACTION_NAME'].nunique()}")
-
-            # single_token_map = {**single_token_names, **single_token_verbs}
-
-    # def _check_token_lengths(self):
-    #     from transformers import AutoTokenizer
-    #     import matplotlib.pyplot as plt
-    #
-    #     tokenizer = AutoTokenizer.from_pretrained(self.config['model'], token=self.access_config['HF_access_token'])
-    #
-    #     sessionStrings = []
-    #     for dataset in self.case_datasets:
-    #         sessionStrings.extend(dataset.sessionStrings)
-    #
-    #     lengths = [len(tokenizer.tokenize(text)) for text in sessionStrings]
-    #
-    #     model_name = self.config["model"]
-    #     path_prefix = next((prefix for prefix in self.config["path_prefix"] if os.path.exists(prefix)), "")
-    #     save_dir = os.path.join(path_prefix, self.config["project_path"], "diagnostics")
-    #     if self.config["n_mini"] is not None:
-    #         save_dir = os.path.join(save_dir, f"{self.config['n_mini']}WPEs_{self.config['min_prior']}min_activity")
-    #     else:
-    #         save_dir = os.path.join(save_dir, self.config['HF_model_name'])
-    #     os.makedirs(save_dir, exist_ok=True)
-    #     assert os.path.exists(save_dir)
-    #
-    #     plt.hist(lengths, bins=50)
-    #     plt.title('Token Length Distribution of SessionStrings')
-    #     plt.xlabel('Token Length')
-    #     plt.ylabel('Number of Sequences')
-    #     save_plot_path = os.path.join(save_dir, 'token_length_distribution.png')
-    #     plt.savefig(save_plot_path)
-    #     plt.close()
-    #     print(f"Token length distribution plot saved at: {save_plot_path}")
-    #
-    #     percentiles = [50, 75, 90, 95, 99]
-    #     # Save statistics
-    #     stats = {
-    #         f"Percent > n_positions ({self.n_positions})": sum(l > self.n_positions for l in lengths) / len(
-    #             lengths) * 100,
-    #         "min": int(np.min(lengths)),
-    #         "max": int(np.max(lengths)),
-    #         "mean": int(np.mean(lengths)),
-    #         "std": int(np.std(lengths)),
-    #         "percentiles": {
-    #             str(p): int(np.percentile(lengths, p)) for p in percentiles
-    #         }
-    #     }
-    #     save_stats_path = os.path.join(save_dir, 'token_length_stats.txt')
-    #     with open(save_stats_path, 'w') as f:
-    #         for k, v in stats.items():
-    #             if isinstance(v, dict):
-    #                 f.write(f"{k}:\n")
-    #                 for sub_k, sub_v in v.items():
-    #                     f.write(f"  {sub_k}th percentile: {sub_v}\n")
-    #             else:
-    #                 f.write(f"{k}: {v:.2f}\n")
-    #     print(f"Token length statistics saved at: {save_stats_path}")
-    #
-    #     # Also print for immediate feedback
-    #     for k, v in stats.items():
-    #         if isinstance(v, dict):
-    #             print(f"{k}:")
-    #             for sub_k, sub_v in v.items():
-    #                 print(f"  {sub_k}th percentile: {sub_v}")
-    #         else:
-    #             print(f"{k}: {v:.2f}")
 
 
     def sessions_to_str(self, df: pd.DataFrame, cols_to_keep: list):
