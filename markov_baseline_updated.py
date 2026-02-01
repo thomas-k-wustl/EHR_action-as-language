@@ -119,8 +119,6 @@ class markovBaseline():
         # if not (((isinstance(self.td_cutoff, float)) or (isinstance(self.td_cutoff, int))) and (self.td_cutoff is not None)):
         #     entropy = self.compute_true_entropy_and_perplexity(self.trans_matrix)
 
-        if not os.path.exists(os.path.join(self.save_dir, "test_last_action_transition_vectors.csv")):
-            self.prepare_error_classification()
 
         # Evaluate on test set
         correct_top1 = 0
@@ -323,46 +321,6 @@ class markovBaseline():
             )
         logging.info(
             f"Tokenizer loaded. Tokenizer size: {len(self.tokenizer)}")
-
-    def prepare_error_classification(self):
-        logging.info("Preparing downstream error classification input table...")
-        # Save 1st-order transition matrix (row: source token, columns: target token probabilities)
-        transition_lookup_df = pd.DataFrame(
-            self.trans_matrix.copy(),
-            index=[self.idx_to_token[i] for i in range(self.N)]
-        )
-        transition_lookup_df.index.name = "action_token_id"
-        transition_lookup_path = os.path.join(self.save_dir, "markov_transition_lookup_table.csv")
-        transition_lookup_df.to_csv(transition_lookup_path)
-        logging.info("Markov Transition lookup table saved to {transition_lookup_path}")
-
-        # Load error labels from separate file
-        # label_path = os.path.join(self.save_dir, f"test{self.config.get('temporal_distinct_testset','')}_labels.npy")
-        label_path = os.path.join(self.save_dir, "test_labels.npy")
-        error_label_array = np.load(label_path)
-
-        # Construct a table for downstream error classification
-        last_token_vectors = []
-        error_labels = []
-
-        for i, item in enumerate(self.test):
-            seq = self.test_sequences[i]
-            if len(seq) == 0:
-                continue
-            last_token = seq[-1]
-            if last_token not in self.token_to_idx:
-                continue
-            vec = self.trans_matrix[self.token_to_idx[last_token]]
-            last_token_vectors.append(vec)
-            error_labels.append(error_label_array[i])
-
-        # Combine into DataFrame
-        last_action_df = pd.DataFrame(last_token_vectors)
-        last_action_df["error_label"] = error_labels
-
-        last_action_table_path = os.path.join(self.save_dir, "test_last_action_transition_vectors.csv")
-        last_action_df.to_csv(last_action_table_path, index=False)
-        logging.info("Last-action transition vectors with error labels saved to {last_action_table_path}")
 
     def compute_true_entropy_and_perplexity(self, trans_matrix):
         """
