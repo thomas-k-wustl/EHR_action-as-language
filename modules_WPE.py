@@ -3,14 +3,11 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import multiprocessing
 from functools import partial
 import gc
-import sys
 import json
 import joblib
 import re
 
-import pdb
-from tqdm import tqdm
-import psutil, gc
+import psutil
 import logging
 # Configure logging to show messages with INFO level or higher
 # logging.basicConfig(level=logging.INFO)
@@ -22,32 +19,17 @@ logging.basicConfig(
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import torch
 import yaml
-import pickle
-from pickle import UnpicklingError
 # from lightning import pytorch as pl
 from torch.utils.data import ConcatDataset, random_split, Subset, DataLoader
-from torch.cuda.amp import GradScaler, autocast
-from torch.optim import AdamW, SGD, RMSprop, Adagrad, Adadelta
-from torch.utils.checkpoint import checkpoint
-import torch.nn.functional as F
 import traceback
 import random
-import datetime
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig  #,AdamW
+from transformers import AutoTokenizer
 import bitsandbytes as bnb
-from peft import get_peft_model, LoraConfig, PeftModel, PeftConfig, prepare_model_for_kbit_training
-# prepare_model_for_kbit_training only supported for peft version 0.4.0 or above. currently disabled for argonaute debugging which has peft version 0.3.0
-
-
-from nltk.translate.bleu_score import sentence_bleu
-from rouge_score import rouge_scorer
 
 from data_WPE import EHRAuditLogDataSet, TokenizedDataSet
-from static_features_WPE import build_static_feature_matrix
 
 # Set the environment variable to disable tokenizer parallelism
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
