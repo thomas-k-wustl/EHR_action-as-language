@@ -116,7 +116,7 @@ Below, each Python file is listed in the order it appears in the typical workflo
   **Inputs:** `config_*.yaml`, `access_config.yaml`  
   **Outputs:** Model checkpoints + evaluation outputs (in configured `results_path`)
 
-- `markov_baseline.py`, `markov_baseline_updated.py`  
+- `markov_baseline_updated.py`  
   **What it does:** Markov next‑action baselines for comparison to the LLM.  
   **Inputs:** Tokenized datasets / cached data, `config_*.yaml`  
   **Outputs:** Baseline metrics
