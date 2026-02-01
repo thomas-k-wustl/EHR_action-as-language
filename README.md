@@ -88,7 +88,6 @@ Below, each Python file is listed in the order it appears in the typical workflo
   - `cached_case_datasets.pt`  
   - `control_chunk_*.pt`  
   - `tokenized_dataset_{train,val,test}.pt`  
-  - `test_labels.npy`, `test_timedelta_sequences*.npy`, `testset_wpe_ids.npy`
 
 - `data_WPE.py`  
   **What it does:** Defines `EHRAuditLogDataSet` and turns a case/control parquet into session strings + timedeltas.  
