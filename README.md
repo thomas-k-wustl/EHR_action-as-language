@@ -5,7 +5,7 @@ This repository contains a research pipeline for modeling **EHR audit log action
 - preprocessing and caching time-windowed audit log sequences for ordering events (in this case, WPE cases and matched controls),
 - representing audit logs in **word-based** or **field-based / structured** forms,
 - optional **custom action-token vocabularies** (e.g., `[ACT_123]`) and structured special tokens for field-based models,
-- fine-tuning autoregressive LLMs (e.g., Llama 3) with **(Q)LoRA** using an SFT-style trainer,
+- fine-tuning autoregressive LLMs (e.g., llama 3) with **(Q)LoRA** using an SFT-style trainer,
 - evaluation and extraction of token-level metrics (accuracy, top-k, cross-entropy/perplexity, entropy),
 - baseline comparisons (Markov transition baseline) and model-performance comparison utilities.
 
@@ -44,22 +44,22 @@ Below, each Python file is listed in the order it appears in the typical workflo
 ### Data preprocessing
 
 - `prepare_data.py`  
-  **What it does:** Extracts orders and audit logs windows preceding the order from raw audit logs; writes cached parquet files per order; also generates the train val test split file by order ID as described below.  
+  **What it does:** Extracts orders and audit logs windows preceding the order from raw audit logs; writes cached parquet files per order; also generates the train val test split file by order ID so orders from the same clinician and similar time point are grouped into the same data split.  
   **Inputs:**  
   - `config_*.yaml` - specifies the experimental design
   - `wpe_list` CSV - list of orders
   - Raw audit logs: `{audit_log_path}/{idx}{audit_log_file}`
 
   **Outputs:**  
-  - Cached windows: `{audit_log_cache}/{idx}/{idx}_case_{min_prior}m.parquet`  
-  - Cached controls: `{audit_log_cache}/{idx}/{idx}_control_{min_prior}m.parquet`  
+  - Cached case order windows: `{audit_log_cache}/{idx}/{idx}_case_{min_prior}m.parquet`  
+  - Cached control order windows: `{audit_log_cache}/{idx}/{idx}_control_{min_prior}m.parquet`  
   - `l_parquet_found.pkl`, `l_parquet_notFound.pkl` (informational; not used elsewhere)
 
 - `generate_action_name_token_map.py`  
   **What it does:** Builds the field-based tokenization, i.e., action → `[ACT_*]` token map when `custom_tokenization: True`.  
   **Inputs:**  
   - `config_*.yaml` (paths)  
-  - Cached case/control parquets in `{audit_log_cache}/{idx}/`
+  - Cached action sequence parquets in `{audit_log_cache}/{idx}/`
  
   **Outputs:** `action_token_map.json` (typically in the `wpe_list/` folder)
 
@@ -67,7 +67,7 @@ Below, each Python file is listed in the order it appears in the typical workflo
   **What it does:** Fits a character n-gram TF‑IDF model over all actions (used during inference‑time to retrieve the closed valid action to the generated natural text for the word-based model).  
   **Inputs:**  
   - `config_*.yaml` (paths)  
-  - Cached case/control parquets in `{audit_log_cache}/{idx}/`
+  - Cached action sequence parquets in `{audit_log_cache}/{idx}/`
  
   **Outputs:**  
   - `tfidf_vectorizer_char3_5.pkl`  
@@ -77,7 +77,7 @@ Below, each Python file is listed in the order it appears in the typical workflo
 ### Model training / evaluation
 
 - `modules_WPE.py`  
-  **What it does:** Loads cached case/control parquets into dataset objects, applies the WPE split, builds train/val/test sequences, tokenizes them, and writes tokenized caches.  
+  **What it does:** Loads cached action sequence parquets into dataset objects, applies the data split to build train/val/test sequences, tokenizes them, and writes tokenized caches.  
   **Inputs:**  
   - `fixed_wpe_splits.pt`  
   - Cached parquets in `{audit_log_cache}/{idx}/`  
@@ -90,9 +90,7 @@ Below, each Python file is listed in the order it appears in the typical workflo
   - `tokenized_dataset_{train,val,test}.pt`  
 
 - `data_WPE.py`  
-  **What it does:** Defines `EHRAuditLogDataSet` and turns a case/control parquet into session strings + timedeltas.  
-  **Inputs:** case/control parquet files produced by `prepare_data.py`  
-  **Outputs:** In‑memory dataset objects used by `modules_WPE.py` (no direct file output)
+  **What it does:** Defines two classes used by `modules_WPE.py`: `EHRAuditLogDataSet` and `TokenizedDataSet`
 
 - `SFTmodules_WPE.py`  
   **What it does:** Fine‑tunes the LLM (SFT/LoRA/QLoRA), evaluates next‑action prediction, and extracts token‑level metrics.  
@@ -124,7 +122,7 @@ Below, each Python file is listed in the order it appears in the typical workflo
 
 ## End-to-end run (typical)
 
-1) **Prepare cached case/control windows + split file**
+1) **Prepare cached order windows + split data**
 ```
 python prepare_data.py
 ```
@@ -171,12 +169,13 @@ python model_performance_comparison.py --config_file config_fullWPE_WB_prompt-T3
 
 ## Configuration
 
+### Required: `config_WPE.yaml`
 `main_WPE.py` is driven by a YAML config file. The included example:
 
 - `config_fullWPE_WB_prompt-T3.yaml`
 
-### Required: `access_config.yaml`
-`main_WPE.py` loads an `access_config.yaml`, which is used to configure your hugging-face and WANDB tokens:
+### Required: `access_config.yaml` (not present in repo)
+`main_WPE.py` requires an `access_config.yaml`, which is used to configure your hugging-face and WANDB tokens:
 ```yaml
 HF_access_token: "YOUR_HF_TOKEN"
 # Optional:

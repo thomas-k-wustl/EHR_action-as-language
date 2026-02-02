@@ -142,13 +142,36 @@ class EHRAuditLogDataSet(Dataset):
         else:
             df = df[['METRIC_ID']+self.event_type_cols + [self.pat_col] + self.timestamp_sort_cols + [self.prov_col]]
 
-        # Convert timestamp column to time deltas
-        if df[self.timestamp_col].dtype == np.dtype("O"): #checking if string format
-            df[self.timestamp_col] = pd.to_datetime(df[self.timestamp_col]) #convert to nanoseconds since Unix epoch
-            df[self.timestamp_col] = df[self.timestamp_col].astype(np.int64) // 10 ** 9 #covert into seconds
+        # Convert timestamp column to a consistent numeric or datetime format
+        if df[self.timestamp_col].dtype == np.dtype("O"):  # string format
+            df[self.timestamp_col] = pd.to_datetime(df[self.timestamp_col])
+            df[self.timestamp_col] = df[self.timestamp_col].astype(np.int64) // 10 ** 9  # seconds since epoch
 
 
         if self.unit_string == "all": # use the entire block sequence preceding an order
+            # Timedelta_style1: diff(current, previous)
+            time_deltas = df.loc[:, self.timestamp_col].diff(periods=1)
+            # Timedelta_style2: diff(current, next)
+            # time_deltas = df.loc[:, 'ACCESS_INSTANT'].diff(periods=-1)*-1
+
+            # Must impute first row's timedelta with an artificial value > SESSION_INTERVAL to denote session start
+            time_deltas.fillna(np.nan, inplace=True)
+
+            df['TIME_DELTA'] = time_deltas.dt.total_seconds()
+            
+
+            def bucket_time_delta(seconds, threshold=60):
+                # 60 sec is reasonable cutoff.
+                # Beyond that may cause multi-token fragmentation
+                # Fine-binning for 0-60 seconds
+                if seconds <= threshold:
+                    return int(seconds)  # fine-grained for rapid actions
+                # Log-binning for >60 seconds
+                else:
+                    return int(np.log1p(seconds)) + threshold  # coarser for large delays; log1p = log(seconds + 1) safe for 0
+
+            ## if using bucket_time_delta (more applicable for word-based free-text tokenization approach)
+            # df['TIME_DELTA'] = df['TIME_DELTA'].apply(lambda x: '<FIRST_ROW>' if pd.isnull(x) else str(bucket_time_delta(x)))
 
             # Create a placeholder column 'session_ID' to make it compatible with the pipeline
             if 'control' in self.log_name:
@@ -270,11 +293,6 @@ class EHRAuditLogDataSet(Dataset):
         # print(f"[DEBUG] {self.log_name}: HEAD\n{df.head()}")
         # self.rowStrings, self.sessionStrings = sessions_to_str(df, cols_to_keep, config=self.config)
         self.sessionStrings = sessions_to_str(df, cols_to_keep, config=self.config)
-
-
-
-        
-
 
 
     def load_from_cache(self):
