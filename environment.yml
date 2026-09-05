@@ -1,0 +1,19 @@
+name: ahrq-wpe-posthoc
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - joblib
+  - pyyaml
+  - tqdm
+  - pytorch
+  - cpuonly
+  - pip:
+      - transformers
